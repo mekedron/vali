@@ -1,0 +1,4 @@
+.raw/
+.validation/
+.DS_Store
+node_modules/
