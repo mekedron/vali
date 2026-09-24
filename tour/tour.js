@@ -4,14 +4,13 @@ import { STOPS, ASSIGN, HIDDEN } from './stops.js';
 
 // Guided presentation of VÄLI: the visitor never walks. Each stop is a fixed
 // viewpoint staged as its own world (only its pieces, in black space or under
-// the sky); the camera cuts between them through a short fade with a slow
-// dolly-in, and the installation's sound starts on its own. The visitor only
-// looks around and steps forward or back.
+// the sky); the camera cuts between them through a fade to black, never moving
+// on its own, since any camera motion the visitor did not make can cause motion
+// sickness in a headset. The installation's sound starts on its own. The visitor
+// only looks around and steps forward or back.
 
 const FADE_OUT = 0.45;
 const FADE_IN = 0.9;
-const DOLLY_TIME = 2.4;
-const DOLLY_DISTANCE = 0.7;
 const AUDIO_FADE = 0.6;
 const LOOK_SPEED = 0.0022;
 
@@ -250,8 +249,7 @@ function showStage(index) {
 
 let current = -1;
 let look = { yaw: 0, pitch: 0 };
-const dolly = { from: new THREE.Vector3(), to: new THREE.Vector3(), t: 1 };
-// Cut state machine: 'idle' → 'out' (veil closing) → 'in' (veil opening, dolly running).
+// Cut state machine: 'idle' → 'out' (veil closing) → 'in' (veil opening).
 let phase = 'idle';
 let phaseT = 0;
 let queued = null;
@@ -279,12 +277,7 @@ function arrive(index) {
   current = index;
   const stop = STOPS[index];
   look = baseLook(stop);
-  const to = new THREE.Vector3().fromArray(stop.position);
-  const back = new THREE.Vector3(Math.sin(look.yaw), 0, Math.cos(look.yaw)).multiplyScalar(DOLLY_DISTANCE);
-  dolly.from.copy(to).add(back);
-  dolly.to.copy(to);
-  dolly.t = 0;
-  camera.position.copy(dolly.from);
+  camera.position.fromArray(stop.position);
 
   showStage(index);
   titleEl.textContent = stop.title;
@@ -326,10 +319,6 @@ function updateCamera(dt) {
     phaseT += dt / FADE_IN;
     veil.material.opacity = 1 - Math.min(1, ease(phaseT));
     if (phaseT >= 1) phase = 'idle';
-  }
-  if (dolly.t < 1) {
-    dolly.t = Math.min(1, dolly.t + dt / DOLLY_TIME);
-    camera.position.lerpVectors(dolly.from, dolly.to, ease(dolly.t));
   }
   camera.rotation.set(look.pitch, look.yaw, 0);
 }

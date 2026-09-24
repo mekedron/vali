@@ -28,8 +28,9 @@ python3 -m http.server 8765
 ## Guided tour (`/tour/`)
 
 A presentation mode for visitors who have never used VR: no walking at all. The
-tour cuts between nine fixed viewpoints, one per installation, with a short fade
-and a slow dolly-in, and each installation's sound starts by itself.
+tour cuts between nine fixed viewpoints, one per installation, through a fade to
+black; the camera never moves by itself, so nothing induces motion sickness in a
+headset. Each installation's sound starts by itself.
 
 Each stop is staged as its own world instead of a corner of the building: only
 that installation's pieces are shown, either in black space or in the open under
