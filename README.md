@@ -3,7 +3,8 @@
 A standalone copy of the VR art space **VÄLI** by Marina Gavrilova, moved from
 the Wonda Spaces platform to plain three.js. It needs no internet connection.
 
-Live: https://mekedron.github.io/vali/
+- Free walk (the original space): https://mekedron.github.io/vali/
+- Guided tour: https://mekedron.github.io/vali/tour/
 
 ## Running locally
 
@@ -24,13 +25,29 @@ python3 -m http.server 8765
 - slider in the top right corner or `−` / `+` — master volume (starts at 5 %)
 - `Esc` — pause
 
+## Guided tour (`/tour/`)
+
+A presentation mode for visitors who have never used VR: no walking at all. The
+tour cuts between nine fixed viewpoints, one per installation, with a short fade
+and a slow dolly-in, and each installation's sound starts by itself.
+
+- left click / `→` / `Space` — next stop, right click / `←` — previous stop
+- mouse — look around
+- `R` — replay the current sound or the Intro video
+- `1`–`9` — jump to a stop, `Home` — back to the start
+- `#N` in the URL (e.g. `tour/#5`) starts the tour at stop N
+
+Viewpoints, titles and the sound of each stop are defined in `tour/stops.js`.
+
 ## Layout
 
 - `scene.json` — every scene element: type, file, world matrix (read from the
   running Wonda player, so placement matches the original exactly), tile size,
   sounds and video settings.
-- `main.js` — the viewer: sky, GLB models, images and videos on planes, sound
-  buttons, walking with collision.
+- `shared/world.js` — builds the space from `scene.json` (sky, GLB models,
+  images and videos on planes); used by both versions.
+- `main.js` — the free-walk viewer: sound buttons, walking with collision.
+- `tour/` — the guided tour.
 - `assets/` — models, images, videos, sounds, sky panorama.
 - `vendor/three/` — three.js (version in `VERSION`), served locally.
 - `tools/fetch_assets.py` — the script that downloaded the assets and built

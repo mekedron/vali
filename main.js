@@ -1,9 +1,6 @@
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
-
-// Every transform in scene.json is a column-major world matrix read out of the
-// original Wonda player, so objects are placed with matrixAutoUpdate disabled.
+import { createWorld } from './shared/world.js';
 
 const EYE_HEIGHT = 1.6;
 const WALK_SPEED = 2.2;
@@ -44,33 +41,18 @@ scene.add(camera);
 const manager = new THREE.LoadingManager();
 manager.onProgress = (_url, loaded, total) => { progressEl.textContent = `Loading… ${loaded} / ${total}`; };
 manager.onLoad = () => document.body.classList.add('loaded');
-const textureLoader = new THREE.TextureLoader(manager);
-const gltfLoader = new GLTFLoader(manager);
 
 // Meshes the player cannot walk through, and meshes that react to clicks.
-const colliders = [];
+let colliders = [];
 const interactives = [];
 const videos = [];
 const sounds = new Map();
-
-function place(object, matrix) {
-  object.matrixAutoUpdate = false;
-  object.matrix.fromArray(matrix);
-  object.matrixWorldNeedsUpdate = true;
-  scene.add(object);
-  return object;
-}
-
-function loadTexture(src) {
-  const tex = textureLoader.load(src);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
-  return tex;
-}
+let videoSources = new Map();
+let world = null;
 
 function soundFor(src, volume) {
   if (!sounds.has(src)) {
-    const audio = new Audio(src);
+    const audio = new Audio(world.url(src));
     audio.preload = 'auto';
     audio.dataset.baseVolume = volume;
     audio.volume = volume * masterVolume;
@@ -79,38 +61,6 @@ function soundFor(src, volume) {
   return sounds.get(src);
 }
 
-function buildSkybox(sky) {
-  const geo = new THREE.SphereGeometry(sky.radius, 128, 54);
-  const mat = new THREE.MeshBasicMaterial({ map: loadTexture(sky.src), side: THREE.BackSide, depthWrite: false });
-  const mesh = place(new THREE.Mesh(geo, mat), sky.matrix);
-  mesh.renderOrder = -1;
-}
-
-function buildModel(src, matrix, { collide = false } = {}) {
-  const root = place(new THREE.Group(), matrix);
-  gltfLoader.load(src, (gltf) => {
-    root.add(gltf.scene);
-    gltf.scene.traverse((o) => {
-      if (o.isMesh && collide) colliders.push(o);
-    });
-  });
-  return root;
-}
-
-function buildTile(el, map) {
-  const geo = new THREE.PlaneGeometry(el.width, el.height);
-  const mat = new THREE.MeshBasicMaterial({
-    map, transparent: true, alphaTest: el.type === 'image' ? 0.005 : 0, side: THREE.FrontSide,
-  });
-  const mesh = place(new THREE.Mesh(geo, mat), el.matrix);
-  mesh.userData.el = el;
-  return mesh;
-}
-
-// One decoder per clip: decor tiles that show the same file share a video and texture.
-// The clip with player controls gets its own so pausing it leaves the decor running.
-const videoSources = new Map();
-
 // Installation sounds and the Intro clip form one group: starting one silences the
 // rest so pieces never play over each other. The ambient bed is not part of it.
 const exclusive = new Set();
@@ -118,42 +68,6 @@ const exclusive = new Set();
 function playExclusive(media) {
   for (const other of exclusive) if (other !== media && !other.paused) other.pause();
   media.play().catch(() => {});
-}
-
-function videoSource(el) {
-  const key = el.controls ? `${el.src}#${el.id}` : el.src;
-  if (videoSources.has(key)) return videoSources.get(key);
-  const video = document.createElement('video');
-  video.src = el.src;
-  video.crossOrigin = 'anonymous';
-  video.playsInline = true;
-  video.loop = el.loop;
-  video.preload = 'auto';
-  // Looping decor clips carry silent audio tracks; only clips with player controls are heard.
-  video.muted = !el.controls || el.volume === 0;
-  const tex = new THREE.VideoTexture(video);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  // Mipmaps keep 1080p frames from shimmering when a tile is seen small or at an angle.
-  tex.generateMipmaps = true;
-  tex.minFilter = THREE.LinearMipmapLinearFilter;
-  tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
-  const source = { video, tex, el, baseVolume: el.volume };
-  videoSources.set(key, source);
-  return source;
-}
-
-function buildVideo(el) {
-  const { video, tex } = videoSource(el);
-  const mesh = buildTile(el, tex);
-  videos.push({ el, video, mesh });
-  if (el.controls) {
-    exclusive.add(video);
-    mesh.userData.onClick = () => {
-      if (video.paused) { playExclusive(video); } else { video.pause(); }
-    };
-    interactives.push(mesh);
-    addVideoControls(mesh, el, video);
-  }
 }
 
 // Play glyph over the paused clip and a progress bar along its lower edge.
@@ -184,49 +98,48 @@ function addVideoControls(mesh, el, video) {
   };
 }
 
-function buildImage(el) {
-  const mesh = buildTile(el, loadTexture(el.src));
-  if (el.sound) {
-    const audio = soundFor(el.sound.src, el.sound.volume);
-    exclusive.add(audio);
-    mesh.userData.onClick = () => {
-      if (audio.paused) { audio.currentTime = 0; playExclusive(audio); } else { audio.pause(); }
-    };
-    interactives.push(mesh);
-  }
-}
-
 async function build() {
-  const data = await (await fetch('./scene.json')).json();
+  world = await createWorld({ renderer, scene, manager, sceneUrl: './scene.json' });
+  ({ colliders, videoSources } = world);
+  const { data } = world;
   document.getElementById('title').textContent = data.title;
   document.getElementById('author').textContent = data.author;
-
-  for (const l of data.lights) {
-    if (l.type === 'AmbientLight') scene.add(new THREE.AmbientLight(l.color, l.intensity));
-  }
-  buildSkybox(data.skybox);
-  buildModel(data.environment.src, data.environment.matrix);
   ambient = soundFor(data.ambient.src, data.ambient.volume);
   ambient.loop = true;
 
-  for (const el of data.elements) {
-    if (el.type === 'object3D') buildModel(el.src, el.matrix, { collide: true });
-    else if (el.type === 'image') buildImage(el);
-    else if (el.type === 'video') buildVideo(el);
+  for (const { el, mesh, video } of world.tiles) {
+    if (video) {
+      videos.push({ el, video, mesh });
+      if (el.controls) {
+        exclusive.add(video);
+        mesh.userData.onClick = () => {
+          if (video.paused) { playExclusive(video); } else { video.pause(); }
+        };
+        interactives.push(mesh);
+        addVideoControls(mesh, el, video);
+      }
+    } else if (el.sound) {
+      const audio = soundFor(el.sound.src, el.sound.volume);
+      exclusive.add(audio);
+      mesh.userData.onClick = () => {
+        if (audio.paused) { audio.currentTime = 0; playExclusive(audio); } else { audio.pause(); }
+      };
+      interactives.push(mesh);
+    }
   }
+  if (startRequested) startMedia(true);
 }
 
 let ambient = null;
 let started = false;
+let startRequested = false;
 
-function startMedia() {
-  if (started) return;
+function startMedia(force = false) {
+  if (!world) { startRequested = true; return; }
+  if (started && !force) return;
   started = true;
   ambient?.play().catch(() => {});
-  for (const { el, video } of videos) {
-    if (el.autoplay) video.play().catch(() => {});
-    else video.load();
-  }
+  world.startLoops();
 }
 
 // ---- Controls -------------------------------------------------------------
@@ -405,4 +318,4 @@ renderer.setAnimationLoop(() => {
 build().then(() => setMasterVolume(masterVolume));
 
 // Exposed for debugging from the browser console.
-window.__vali = { scene, camera, renderer, colliders, interactives, videos };
+window.__vali = { scene, camera, renderer, get colliders() { return colliders; }, interactives, videos };
