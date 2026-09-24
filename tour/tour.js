@@ -163,6 +163,11 @@ const stageFloor = new THREE.Mesh(
 );
 stageFloor.rotation.x = -Math.PI / 2;
 stageFloor.position.y = 0.002;
+// Floor and glow are transparent layers at nearly the same spot, so the per-frame
+// depth sort could flip them as the view tilts and let the floor cover the glow.
+// They are drawn first among transparent objects, floor then glow, so images
+// lying on the floor and the dust always land on top of them.
+stageFloor.renderOrder = -2;
 scene.add(stageFloor);
 
 const stageGlow = new THREE.Mesh(
@@ -174,6 +179,7 @@ const stageGlow = new THREE.Mesh(
 );
 stageGlow.rotation.x = -Math.PI / 2;
 stageGlow.position.y = 0.004;
+stageGlow.renderOrder = -1;
 scene.add(stageGlow);
 
 // Slowly rising dust around the piece, tinted with the stop's accent colour.
