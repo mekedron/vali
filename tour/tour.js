@@ -1,9 +1,10 @@
 import * as THREE from 'three';
 import { createWorld } from '../shared/world.js';
-import { STOPS } from './stops.js';
+import { STOPS, ASSIGN, HIDDEN } from './stops.js';
 
 // Guided presentation of VÄLI: the visitor never walks. Each stop is a fixed
-// viewpoint; the camera cuts between them through a short fade with a slow
+// viewpoint staged as its own world (only its pieces, in black space or under
+// the sky); the camera cuts between them through a short fade with a slow
 // dolly-in, and the installation's sound starts on its own. The visitor only
 // looks around and steps forward or back.
 
@@ -118,15 +119,131 @@ async function build() {
   }
   setMasterVolume(masterVolume);
 
-  // Sounds start by themselves here, so the FRAGMENT/SILENCE floor buttons would only
-  // invite clicks that do nothing.
-  for (const { el, mesh } of world.tiles) if (el.sound) mesh.visible = false;
+  assignStages();
+  showStage(Math.max(current, 0));
 
   for (let i = 0; i < STOPS.length; i++) {
     const dot = document.createElement('span');
     dotsEl.appendChild(dot);
   }
   if (pendingStart) begin();
+}
+
+// ---- Stages -----------------------------------------------------------------
+
+const VOID_FOG = 0.045;
+const SKY_FOG = 0.02;
+const SKY_FOG_COLOR = 0x26272e;
+const DUST_COUNT = 420;
+const DUST_RADIUS = 7;
+const DUST_HEIGHT = 6;
+
+const stageMembers = STOPS.map(() => []);
+
+function radialTexture(stops) {
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const g = c.getContext('2d');
+  const grad = g.createRadialGradient(128, 128, 0, 128, 128, 128);
+  for (const [at, color] of stops) grad.addColorStop(at, color);
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 256, 256);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// A floor that exists only around the installation and fades into the dark, so
+// each stop reads as an island rather than a corner of a building.
+const stageFloor = new THREE.Mesh(
+  new THREE.CircleGeometry(9, 96),
+  new THREE.MeshBasicMaterial({
+    map: radialTexture([[0, 'rgba(20,20,26,1)'], [0.55, 'rgba(14,14,18,0.95)'], [1, 'rgba(0,0,0,0)']]),
+    transparent: true, depthWrite: false,
+  }),
+);
+stageFloor.rotation.x = -Math.PI / 2;
+stageFloor.position.y = 0.002;
+scene.add(stageFloor);
+
+const stageGlow = new THREE.Mesh(
+  new THREE.CircleGeometry(4.5, 96),
+  new THREE.MeshBasicMaterial({
+    map: radialTexture([[0, 'rgba(255,255,255,0.55)'], [0.4, 'rgba(255,255,255,0.2)'], [1, 'rgba(255,255,255,0)']]),
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+  }),
+);
+stageGlow.rotation.x = -Math.PI / 2;
+stageGlow.position.y = 0.004;
+scene.add(stageGlow);
+
+// Slowly rising dust around the piece, tinted with the stop's accent colour.
+const dustGeo = new THREE.BufferGeometry();
+const dustPos = new Float32Array(DUST_COUNT * 3);
+const dustSeed = new Float32Array(DUST_COUNT * 3);
+for (let i = 0; i < DUST_COUNT; i++) {
+  const r = DUST_RADIUS * Math.sqrt(Math.random());
+  const a = Math.random() * Math.PI * 2;
+  dustSeed.set([Math.cos(a) * r, Math.random() * DUST_HEIGHT, Math.sin(a) * r], i * 3);
+}
+dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPos, 3));
+const dust = new THREE.Points(dustGeo, new THREE.PointsMaterial({
+  size: 0.085,
+  map: radialTexture([[0, 'rgba(255,255,255,1)'], [0.35, 'rgba(255,255,255,0.5)'], [1, 'rgba(255,255,255,0)']]),
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.9,
+}));
+dust.frustumCulled = false;
+scene.add(dust);
+
+function updateDust(time) {
+  for (let i = 0; i < DUST_COUNT; i++) {
+    const sx = dustSeed[i * 3], sy = dustSeed[i * 3 + 1], sz = dustSeed[i * 3 + 2];
+    const phase = i * 12.9898;
+    dustPos[i * 3] = sx + Math.sin(time * 0.21 + phase) * 0.25;
+    dustPos[i * 3 + 1] = (sy + time * 0.08) % DUST_HEIGHT;
+    dustPos[i * 3 + 2] = sz + Math.cos(time * 0.17 + phase) * 0.25;
+  }
+  dustGeo.attributes.position.needsUpdate = true;
+}
+
+function assignStages() {
+  const targets = STOPS.map((s) => s.target);
+  const items = [
+    ...world.tiles.map((t) => ({ el: t.el, obj: t.mesh })),
+    ...world.models.map((m) => ({ el: m.el, obj: m.root })),
+  ];
+  for (const { el, obj } of items) {
+    if (HIDDEN(el)) { obj.visible = false; continue; }
+    let index = STOPS.findIndex((s) => s.title === ASSIGN[el.label]);
+    if (index < 0) {
+      const x = el.matrix[12], z = el.matrix[14];
+      let best = Infinity;
+      targets.forEach((t, i) => {
+        const d = Math.hypot(x - t[0], z - t[2]);
+        if (d < best) { best = d; index = i; }
+      });
+    }
+    stageMembers[index].push(obj);
+  }
+  // The shared floor plane and the panorama are replaced per stage.
+  world.environment.visible = false;
+  world.sky.material.fog = false;
+}
+
+function showStage(index) {
+  const stop = STOPS[index];
+  stageMembers.forEach((objs, i) => { for (const o of objs) o.visible = i === index; });
+
+  const outside = stop.env === 'sky';
+  world.sky.visible = outside;
+  scene.fog = outside ? new THREE.FogExp2(SKY_FOG_COLOR, SKY_FOG) : new THREE.FogExp2(0x000000, VOID_FOG);
+
+  const [x, , z] = stop.target;
+  stageFloor.position.set(x, stageFloor.position.y, z);
+  stageGlow.position.set(x, stageGlow.position.y, z);
+  stageGlow.material.color.set(stop.accent);
+  dust.position.set(x, 0, z);
+  dust.material.color.set(stop.accent);
 }
 
 // ---- Camera -----------------------------------------------------------------
@@ -169,6 +286,7 @@ function arrive(index) {
   dolly.t = 0;
   camera.position.copy(dolly.from);
 
+  showStage(index);
   titleEl.textContent = stop.title;
   subtitleEl.textContent = stop.subtitle || '';
   dotsEl.querySelectorAll('span').forEach((d, i) => d.classList.toggle('on', i === index));
@@ -352,10 +470,11 @@ renderer.setAnimationLoop(() => {
   const dt = Math.min(timer.getDelta(), 0.1);
   updateCamera(dt);
   fadeVoices(dt);
+  updateDust(timer.getElapsed());
   renderer.render(scene, camera);
 });
 
 build();
 
 // Exposed for debugging from the browser console.
-window.__tour = { scene, camera, renderer, veil, goTo, get current() { return current; }, look: () => look, STOPS };
+window.__tour = { scene, camera, renderer, veil, goTo, showStage, updateDust, get current() { return current; }, look: () => look, STOPS };

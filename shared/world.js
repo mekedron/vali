@@ -91,9 +91,10 @@ export async function createWorld({ renderer, scene, manager, sceneUrl }) {
 
   const skyGeo = new THREE.SphereGeometry(data.skybox.radius, 128, 54);
   const skyMat = new THREE.MeshBasicMaterial({ map: loadTexture(data.skybox.src), side: THREE.BackSide, depthWrite: false });
-  place(new THREE.Mesh(skyGeo, skyMat), data.skybox.matrix).renderOrder = -1;
+  const sky = place(new THREE.Mesh(skyGeo, skyMat), data.skybox.matrix);
+  sky.renderOrder = -1;
 
-  buildModel(data.environment.src, data.environment.matrix);
+  const environment = buildModel(data.environment.src, data.environment.matrix);
 
   for (const el of data.elements) {
     if (el.type === 'object3D') buildModel(el.src, el.matrix, el);
@@ -101,7 +102,7 @@ export async function createWorld({ renderer, scene, manager, sceneUrl }) {
   }
 
   return {
-    data, url, colliders, models, tiles, videoSources,
+    data, url, colliders, models, tiles, videoSources, sky, environment,
     // Starts every autoplaying decor clip; call from a user gesture.
     startLoops() {
       for (const { video, el } of videoSources.values()) {

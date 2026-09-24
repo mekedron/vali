@@ -31,13 +31,19 @@ A presentation mode for visitors who have never used VR: no walking at all. The
 tour cuts between nine fixed viewpoints, one per installation, with a short fade
 and a slow dolly-in, and each installation's sound starts by itself.
 
+Each stop is staged as its own world instead of a corner of the building: only
+that installation's pieces are shown, either in black space or in the open under
+the sky, on a floor that fades into the dark, with a soft glow and floating dust
+in the piece's colour.
+
 - left click / `→` / `Space` — next stop, right click / `←` — previous stop
 - mouse — look around
 - `R` — replay the current sound or the Intro video
 - `1`–`9` — jump to a stop, `Home` — back to the start
 - `#N` in the URL (e.g. `tour/#5`) starts the tour at stop N
 
-Viewpoints, titles and the sound of each stop are defined in `tour/stops.js`.
+Viewpoints, titles, sound, setting (`void` / `sky`) and accent colour of each
+stop are defined in `tour/stops.js`.
 
 ## Layout
 
